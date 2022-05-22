@@ -1,27 +1,81 @@
-var store = make(map[string]string)
+package main
 
-// Put function takes two parameters of type string as inputs  and returns an error type
-func Put(key string, value string) error {
-	store[key] = value
+import (
+	"errors"
+	"io"
+	"log"
+	"net/http"
 
-	return nil
+	"github.com/gorilla/mux"
+)
+
+func helloMuxHandler(w http.ResponseWriter, r *http.Request) {
+	w.Write([]byte("Hello gorilla/mux\n"))
 }
 
-var ErrorNoSuchKey = errors.New("no such key")
+func keyValuePutHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	key := vars["key"] // Retrieve key from the request
 
-// Get function takes one parameter of type string as input and returns error and string types
-func Get(key string) (string, error) {
-	value, ok : store[key]
+	value, err := io.ReadAll(r.Body)
+	defer r.Body.Close()
 
-	if !ok {
-		return "", ErrorNoSuchKey
+	if err != nil {
+		http.Error(w,
+			err.Error(),
+			http.StatusInternalServerError)
+		return
 	}
 
-	return value, nil
+	err = Put(key, string(value))
+	if err != nil {
+		http.Error(w,
+			err.Error(),
+			http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
 }
 
-func Delete(key string) error {
-	delete(store, key)
+func keyValueGetHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	key := vars["key"]
 
-	return nil
+	value, err := Get(key)
+	if errors.Is(err, ErrorNoSuchKey) {
+		http.Error(w,
+			err.Error(),
+			http.StatusInternalServerError)
+		return
+	}
+
+	w.Write([]byte(value))
+}
+
+func keyValueDeleteHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	key := vars["key"]
+
+	err := Delete(key)
+	if err != nil {
+		http.Error(w,
+			err.Error(),
+			http.StatusInternalServerError)
+	}
+	return
+}
+
+func main() {
+	r := mux.NewRouter()
+
+	r.HandleFunc("/", helloMuxHandler)
+	// Register keyValuePutHandler as the handler function for PUT requests matching "/v1/{key}"
+	r.HandleFunc("/v1/{key}", keyValuePutHandler).Methods("PUT")
+	// Register keyValueGetHandler as the handler function for Get requests matching "/v1/{key}"
+	r.HandleFunc("/v1/{key}", keyValueGetHandler).Methods("GET")
+	// Register keyValueDeleteHandler as the handler function for Delete requests matching "/v1/{key}"
+	r.HandleFunc("/v1/{key}", keyValueDeleteHandler).Methods("DELETE")
+
+	log.Fatal(http.ListenAndServe(":8080", r))
 }
